@@ -21,15 +21,6 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
-// type StreamConfig struct {
-// 	projectID     string
-// 	datasetID     string
-// 	tableID       string
-// 	md            protoreflect.MessageDescriptor
-// 	managedStream *managedwriter.ManagedStream
-// 	client        *managedwriter.Client
-// }
-
 var (
 	projectID     string
 	datasetID     string
@@ -38,7 +29,6 @@ var (
 	managedStream *managedwriter.ManagedStream
 	client        *managedwriter.Client
 	ctx           context.Context
-	// configMap     = make(map[string]StreamConfig)
 )
 
 // This function handles getting data on the schema of the table data is being written to.
@@ -121,7 +111,6 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	outputID := output.FLBPluginConfigKey(plugin, "OutputID")
 	log.Printf("Output Match: %s", outputID)
 	log.Printf("[multiinstance] id = %q", outputID)
-	// output.FLBPluginSetContext(plugin, outputID)
 
 	//create context
 	ctx = context.Background()
@@ -159,8 +148,6 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		return output.FLB_ERROR
 	}
 
-	//configMap[tag] = config
-
 	return output.FLB_OK
 }
 
@@ -168,66 +155,6 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
 	dec := output.NewDecoder(data, int(length))
 	var binaryData [][]byte
-
-	// tagStr := C.GoString(tag)
-	// log.Printf("Received tag: %s", tagStr)
-	// config, ok := configMap[tagStr]
-	// if !ok {
-	// 	log.Printf("Skipping flush because config is not found for tag: %s.", tagStr)
-	// 	return output.FLB_OK
-	// }
-
-	// Iterate Records
-	for {
-		ret, _, record := output.GetRecord(dec)
-		if ret != 0 {
-			break
-		}
-
-		row := parseMap(record)
-
-		buf, err := jsonToBinary(md, row)
-		if err != nil {
-			log.Fatalf("Failed to convert from JSON to binary: %v", err)
-			return output.FLB_ERROR
-		}
-		binaryData = append(binaryData, buf)
-	}
-
-	// Append rows
-	stream, err := managedStream.AppendRows(ctx, binaryData)
-	if err != nil {
-		log.Fatalf("Failed to append rows: %v", err)
-		return output.FLB_ERROR
-	}
-
-	// Check result
-	_, err = stream.GetResult(ctx)
-	if err != nil {
-		log.Fatalf("Append returned error: %v", err)
-		return output.FLB_ERROR
-	}
-
-	log.Printf("Done!")
-
-	return output.FLB_OK
-}
-
-func FLBPluginFlushCtx(flb_ctx, data unsafe.Pointer, length C.int, tag *C.char) int {
-	id := output.FLBPluginGetContext(flb_ctx).(string)
-	log.Printf("[multiinstance] Flush called for id: %s", id)
-
-	// Create Fluent Bit decoder
-	dec := output.NewDecoder(data, int(length))
-	var binaryData [][]byte
-
-	// tagStr := C.GoString(tag)
-	// log.Printf("Received tag: %s", tagStr)
-	// config, ok := configMap[tagStr]
-	// if !ok {
-	// 	log.Printf("Skipping flush because config is not found for tag: %s.", tagStr)
-	// 	return output.FLB_OK
-	// }
 
 	// Iterate Records
 	for {
@@ -267,7 +194,6 @@ func FLBPluginFlushCtx(flb_ctx, data unsafe.Pointer, length C.int, tag *C.char) 
 
 //export FLBPluginExit
 func FLBPluginExit() int {
-	// for _, config := range configMap {
 	if managedStream != nil {
 		if err := managedStream.Close(); err != nil {
 			log.Printf("Couldn't close managed stream: %v", err)
@@ -281,7 +207,6 @@ func FLBPluginExit() int {
 			return output.FLB_ERROR
 		}
 	}
-	// }
 
 	return output.FLB_OK
 }

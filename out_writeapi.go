@@ -19,22 +19,17 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
+// Struct for each stream - one stream per output
 type StreamConfig struct {
-	projectID     string
-	datasetID     string
-	tableID       string
 	md            protoreflect.MessageDescriptor
 	managedStream *managedwriter.ManagedStream
 	client        *managedwriter.Client
 }
 
 var (
-	// projectID     string
-	// datasetID     string
-	// tableID       string
-	// md            protoreflect.MessageDescriptor
-	// managedStream *managedwriter.ManagedStream
-	client    *managedwriter.Client
+	projectID string
+	datasetID string
+	tableID   string
 	ms_ctx    context.Context
 	configMap = make(map[string]StreamConfig)
 )
@@ -117,9 +112,9 @@ func FLBPluginRegister(def unsafe.Pointer) int {
 
 //export FLBPluginInit
 func FLBPluginInit(plugin unsafe.Pointer) int {
+	// Creating FLB context for each output, enables multiinstancing
 	id := output.FLBPluginConfigKey(plugin, "OutputID")
 	log.Printf("[multiinstance] id = %q", id)
-	// Set the context to point to any Go variable
 	output.FLBPluginSetContext(plugin, id)
 
 	//create context
@@ -146,6 +141,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		return output.FLB_ERROR
 	}
 
+	// Creates Stream
 	managedStream, err := client.NewManagedStream(ms_ctx,
 		managedwriter.WithType(managedwriter.DefaultStream),
 		managedwriter.WithDestinationTable(tableReference),
@@ -157,15 +153,14 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		return output.FLB_ERROR
 	}
 
+	// Instantiates stream
 	config := StreamConfig{
-		projectID:     projectID,
-		datasetID:     datasetID,
-		tableID:       tableID,
 		md:            md,
 		managedStream: managedStream,
 		client:        client,
 	}
 
+	// Stores stream in map
 	configMap[id] = config
 
 	return output.FLB_OK
@@ -179,10 +174,11 @@ func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
 
 //export FLBPluginFlushCtx
 func FLBPluginFlushCtx(ctx, data unsafe.Pointer, length C.int, tag *C.char) int {
-	// Type assert context back into the original type for the Go variable
+	// Get FLB context
 	id := output.FLBPluginGetContext(ctx).(string)
 	log.Printf("[multiinstance] Flush called for id: %s", id)
 
+	// Locate stream in map
 	config, ok := configMap[id]
 	if !ok {
 		log.Printf("Skipping flush because config is not found for tag: %s.", id)
@@ -237,10 +233,11 @@ func FLBPluginExit() int {
 
 //export FLBPluginExitCtx
 func FLBPluginExitCtx(ctx unsafe.Pointer) int {
-	// Type assert context back into the original type for the Go variable
+	// Get context
 	id := output.FLBPluginGetContext(ctx).(string)
 	log.Printf("[multiinstance] Exit called for id: %s", id)
 
+	// Asynchronously checks streams by locating in map
 	config, ok := configMap[id]
 	if !ok {
 		log.Printf("Skipping exit because config is not found for tag: %s.", id)
@@ -249,7 +246,7 @@ func FLBPluginExitCtx(ctx unsafe.Pointer) int {
 
 	if config.managedStream != nil {
 		if err := config.managedStream.Close(); err != nil {
-			log.Printf("Couldn't close managed stram: %v", err)
+			log.Printf("Couldn't close managed stream: %v", err)
 			return output.FLB_ERROR
 		}
 	}

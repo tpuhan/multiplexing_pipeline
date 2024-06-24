@@ -50,7 +50,7 @@ func writeToSecondLog() {
 	for {
 		curr := logEntry{
 			Time: time.Now().Format(time.RFC3339),
-			Text: "Goodbye World!",
+			Text: "Until we meet again!",
 		}
 		entry, err := json.Marshal(curr)
 		if err != nil {

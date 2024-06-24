@@ -21,6 +21,15 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
+// type StreamConfig struct {
+// 	projectID     string
+// 	datasetID     string
+// 	tableID       string
+// 	md            protoreflect.MessageDescriptor
+// 	managedStream *managedwriter.ManagedStream
+// 	client        *managedwriter.Client
+// }
+
 var (
 	projectID     string
 	datasetID     string
@@ -28,7 +37,8 @@ var (
 	md            protoreflect.MessageDescriptor
 	managedStream *managedwriter.ManagedStream
 	client        *managedwriter.Client
-	ctx           context.Context
+	// ctx           context.Context
+	// configMap     = make(map[string]StreamConfig)
 )
 
 // This function handles getting data on the schema of the table data is being written to.
@@ -111,89 +121,124 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	outputID := output.FLBPluginConfigKey(plugin, "OutputID")
 	log.Printf("Output Match: %s", outputID)
 	log.Printf("[multiinstance] id = %q", outputID)
+	output.FLBPluginSetContext(plugin, outputID)
 
-	//create context
-	ctx = context.Background()
+	// //create context
+	// ctx = context.Background()
 
-	//set projectID, datasetID, and tableID from config file params
-	projectID := output.FLBPluginConfigKey(plugin, "ProjectID")
-	datasetID := output.FLBPluginConfigKey(plugin, "DatasetID")
-	tableID := output.FLBPluginConfigKey(plugin, "TableID")
+	// //set projectID, datasetID, and tableID from config file params
+	// projectID := output.FLBPluginConfigKey(plugin, "ProjectID")
+	// datasetID := output.FLBPluginConfigKey(plugin, "DatasetID")
+	// tableID := output.FLBPluginConfigKey(plugin, "TableID")
 
-	tableReference := fmt.Sprintf("projects/%s/datasets/%s/tables/%s", projectID, datasetID, tableID)
+	// tableReference := fmt.Sprintf("projects/%s/datasets/%s/tables/%s", projectID, datasetID, tableID)
 
-	//create new client
-	client, err := managedwriter.NewClient(ctx, projectID)
-	if err != nil {
-		log.Fatal(err)
-		return output.FLB_ERROR
-	}
+	// //create new client
+	// client, err := managedwriter.NewClient(ctx, projectID)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// 	return output.FLB_ERROR
+	// }
 
-	//use getDescriptors to get the message descriptor, and descriptor proto
-	var descriptor *descriptorpb.DescriptorProto
-	md, descriptor, err = getDescriptors(ctx, client, projectID, datasetID, tableID)
-	if err != nil {
-		log.Fatalf("Failed to get descriptors: %v", err)
-		return output.FLB_ERROR
-	}
+	// //use getDescriptors to get the message descriptor, and descriptor proto
+	// var descriptor *descriptorpb.DescriptorProto
+	// md, descriptor, err = getDescriptors(ctx, client, projectID, datasetID, tableID)
+	// if err != nil {
+	// 	log.Fatalf("Failed to get descriptors: %v", err)
+	// 	return output.FLB_ERROR
+	// }
 
-	managedStream, err = client.NewManagedStream(ctx,
-		managedwriter.WithType(managedwriter.DefaultStream),
-		managedwriter.WithDestinationTable(tableReference),
-		managedwriter.WithSchemaDescriptor(descriptor),
-		managedwriter.EnableWriteRetries(true),
-	)
-	if err != nil {
-		log.Fatalf("Failed to create managed stream: %v", err)
-		return output.FLB_ERROR
-	}
+	// managedStream, err = client.NewManagedStream(ctx,
+	// 	managedwriter.WithType(managedwriter.DefaultStream),
+	// 	managedwriter.WithDestinationTable(tableReference),
+	// 	managedwriter.WithSchemaDescriptor(descriptor),
+	// 	managedwriter.EnableWriteRetries(true),
+	// )
+	// if err != nil {
+	// 	log.Fatalf("Failed to create managed stream: %v", err)
+	// 	return output.FLB_ERROR
+	// }
+
+	// // config := StreamConfig{
+	// // 	projectID:     projectID,
+	// // 	datasetID:     datasetID,
+	// // 	tableID:       tableID,
+	// // 	md:            md,
+	// // 	managedStream: managedStream,
+	// // 	client:        client,
+	// // }
+
+	// log.Printf("Got to set context")
 
 	return output.FLB_OK
 }
 
 //export FLBPluginFlush
-func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
-	dec := output.NewDecoder(data, int(length))
-	var binaryData [][]byte
+// func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
+// 	log.Printf("[multiinstance] Flush called for unknown instance")
+// 	// outputID := output.FLBPluginConfigKey(plugin, "OutputID")
+// 	// log.Printf("Output id flush: %s", outputID)
+// 	tagStr := C.GoString(tag)
+// 	log.Printf("Received tag: %s", tagStr)
+// 	return output.FLB_OK
+// }
 
-	// Iterate Records
-	for {
-		ret, _, record := output.GetRecord(dec)
-		if ret != 0 {
-			break
-		}
+func FLBPluginFlushCtx(ctx, data unsafe.Pointer, length C.int, tag *C.char) int {
+	log.Printf("FlushCTX called")
+	// id := output.FLBPluginGetContext(flb_ctx).(StreamConfig)
+	// log.Printf("[multiinstance] Flush called for id: %s", id)
 
-		row := parseMap(record)
+	// Create Fluent Bit decoder
+	// dec := output.NewDecoder(data, int(length))
+	// var binaryData [][]byte
 
-		buf, err := jsonToBinary(md, row)
-		if err != nil {
-			log.Fatalf("Failed to convert from JSON to binary: %v", err)
-			return output.FLB_ERROR
-		}
-		binaryData = append(binaryData, buf)
-	}
+	// // Iterate Records
+	// for {
+	// 	ret, _, record := output.GetRecord(dec)
+	// 	if ret != 0 {
+	// 		break
+	// 	}
 
-	// Append rows
-	stream, err := managedStream.AppendRows(ctx, binaryData)
-	if err != nil {
-		log.Fatalf("Failed to append rows: %v", err)
-		return output.FLB_ERROR
-	}
+	// 	row := parseMap(record)
 
-	// Check result
-	_, err = stream.GetResult(ctx)
-	if err != nil {
-		log.Fatalf("Append returned error: %v", err)
-		return output.FLB_ERROR
-	}
+	// 	buf, err := jsonToBinary(md, row)
+	// 	if err != nil {
+	// 		log.Fatalf("Failed to convert from JSON to binary: %v", err)
+	// 		return output.FLB_ERROR
+	// 	}
+	// 	binaryData = append(binaryData, buf)
+	// }
 
-	log.Printf("Done!")
+	// // Append rows
+	// stream, err := managedStream.AppendRows(ctx, binaryData)
+	// if err != nil {
+	// 	log.Fatalf("Failed to append rows: %v", err)
+	// 	return output.FLB_ERROR
+	// }
+
+	// // Check result
+	// _, err = stream.GetResult(ctx)
+	// if err != nil {
+	// 	log.Fatalf("Append returned error: %v", err)
+	// 	return output.FLB_ERROR
+	// }
+
+	// log.Printf("Done!")
 
 	return output.FLB_OK
 }
 
 //export FLBPluginExit
 func FLBPluginExit() int {
+	log.Printf("[multiinstance] Exit called for unknown instance")
+	return output.FLB_OK
+}
+
+func FLBPluginExitCtx(ctx unsafe.Pointer) int {
+	// Type assert context back into the original type for the Go variable
+	// id := output.FLBPluginGetContext(ctx).(StreamConfig)
+	log.Printf("[multiinstance] Exit called for id: ")
+
 	if managedStream != nil {
 		if err := managedStream.Close(); err != nil {
 			log.Printf("Couldn't close managed stream: %v", err)
@@ -209,6 +254,11 @@ func FLBPluginExit() int {
 	}
 
 	return output.FLB_OK
+}
+
+func FLBPluginUnregister(def unsafe.Pointer) {
+	log.Print("[multiinstance] Unregister called")
+	output.FLBPluginUnregister(def)
 }
 
 func main() {

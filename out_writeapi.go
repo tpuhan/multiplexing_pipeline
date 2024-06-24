@@ -21,18 +21,24 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
-type StreamConfig struct {
+// type StreamConfig struct {
+// 	projectID     string
+// 	datasetID     string
+// 	tableID       string
+// 	md            protoreflect.MessageDescriptor
+// 	managedStream *managedwriter.ManagedStream
+// 	client        *managedwriter.Client
+// }
+
+var (
 	projectID     string
 	datasetID     string
 	tableID       string
 	md            protoreflect.MessageDescriptor
 	managedStream *managedwriter.ManagedStream
 	client        *managedwriter.Client
-}
-
-var (
-	ctx       context.Context
-	configMap = make(map[string]StreamConfig)
+	ctx           context.Context
+	// configMap     = make(map[string]StreamConfig)
 )
 
 // This function handles getting data on the schema of the table data is being written to.
@@ -112,6 +118,11 @@ func FLBPluginRegister(def unsafe.Pointer) int {
 
 //export FLBPluginInit
 func FLBPluginInit(plugin unsafe.Pointer) int {
+	outputID := output.FLBPluginConfigKey(plugin, "OutputID")
+	log.Printf("Output Match: %s", outputID)
+	log.Printf("[multiinstance] id = %q", outputID)
+	// output.FLBPluginSetContext(plugin, outputID)
+
 	//create context
 	ctx = context.Background()
 
@@ -119,8 +130,6 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	projectID := output.FLBPluginConfigKey(plugin, "ProjectID")
 	datasetID := output.FLBPluginConfigKey(plugin, "DatasetID")
 	tableID := output.FLBPluginConfigKey(plugin, "TableID")
-	tag := output.FLBPluginConfigKey(plugin, "Pattern")
-	log.Printf("Tag: %s", tag)
 
 	tableReference := fmt.Sprintf("projects/%s/datasets/%s/tables/%s", projectID, datasetID, tableID)
 
@@ -132,13 +141,14 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	}
 
 	//use getDescriptors to get the message descriptor, and descriptor proto
-	md, descriptor, err := getDescriptors(ctx, client, projectID, datasetID, tableID)
+	var descriptor *descriptorpb.DescriptorProto
+	md, descriptor, err = getDescriptors(ctx, client, projectID, datasetID, tableID)
 	if err != nil {
 		log.Fatalf("Failed to get descriptors: %v", err)
 		return output.FLB_ERROR
 	}
 
-	managedStream, err := client.NewManagedStream(ctx,
+	managedStream, err = client.NewManagedStream(ctx,
 		managedwriter.WithType(managedwriter.DefaultStream),
 		managedwriter.WithDestinationTable(tableReference),
 		managedwriter.WithSchemaDescriptor(descriptor),
@@ -149,33 +159,23 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		return output.FLB_ERROR
 	}
 
-	config := StreamConfig{
-		projectID:     projectID,
-		datasetID:     datasetID,
-		tableID:       tableID,
-		md:            md,
-		managedStream: managedStream,
-		client:        client,
-	}
-
-	configMap[tag] = config
+	//configMap[tag] = config
 
 	return output.FLB_OK
 }
 
 //export FLBPluginFlush
 func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
-	// Create Fluent Bit decoder
 	dec := output.NewDecoder(data, int(length))
 	var binaryData [][]byte
 
-	tagStr := C.GoString(tag)
-	log.Printf("Received tag: %s", tagStr)
-	config, ok := configMap[tagStr]
-	if !ok {
-		log.Printf("Skipping flush because config is not found for tag: %s.", tagStr)
-		return output.FLB_OK
-	}
+	// tagStr := C.GoString(tag)
+	// log.Printf("Received tag: %s", tagStr)
+	// config, ok := configMap[tagStr]
+	// if !ok {
+	// 	log.Printf("Skipping flush because config is not found for tag: %s.", tagStr)
+	// 	return output.FLB_OK
+	// }
 
 	// Iterate Records
 	for {
@@ -186,7 +186,7 @@ func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
 
 		row := parseMap(record)
 
-		buf, err := jsonToBinary(config.md, row)
+		buf, err := jsonToBinary(md, row)
 		if err != nil {
 			log.Fatalf("Failed to convert from JSON to binary: %v", err)
 			return output.FLB_ERROR
@@ -195,39 +195,93 @@ func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
 	}
 
 	// Append rows
-	stream, err := config.managedStream.AppendRows(ctx, binaryData)
+	stream, err := managedStream.AppendRows(ctx, binaryData)
 	if err != nil {
 		log.Fatalf("Failed to append rows: %v", err)
 		return output.FLB_ERROR
 	}
 
 	// Check result
-	recvOffset, err := stream.GetResult(ctx)
+	_, err = stream.GetResult(ctx)
 	if err != nil {
 		log.Fatalf("Append returned error: %v", err)
 		return output.FLB_ERROR
 	}
+
+	log.Printf("Done!")
+
+	return output.FLB_OK
+}
+
+func FLBPluginFlushCtx(flb_ctx, data unsafe.Pointer, length C.int, tag *C.char) int {
+	id := output.FLBPluginGetContext(flb_ctx).(string)
+	log.Printf("[multiinstance] Flush called for id: %s", id)
+
+	// Create Fluent Bit decoder
+	dec := output.NewDecoder(data, int(length))
+	var binaryData [][]byte
+
+	// tagStr := C.GoString(tag)
+	// log.Printf("Received tag: %s", tagStr)
+	// config, ok := configMap[tagStr]
+	// if !ok {
+	// 	log.Printf("Skipping flush because config is not found for tag: %s.", tagStr)
+	// 	return output.FLB_OK
+	// }
+
+	// Iterate Records
+	for {
+		ret, _, record := output.GetRecord(dec)
+		if ret != 0 {
+			break
+		}
+
+		row := parseMap(record)
+
+		buf, err := jsonToBinary(md, row)
+		if err != nil {
+			log.Fatalf("Failed to convert from JSON to binary: %v", err)
+			return output.FLB_ERROR
+		}
+		binaryData = append(binaryData, buf)
+	}
+
+	// Append rows
+	stream, err := managedStream.AppendRows(ctx, binaryData)
+	if err != nil {
+		log.Fatalf("Failed to append rows: %v", err)
+		return output.FLB_ERROR
+	}
+
+	// Check result
+	_, err = stream.GetResult(ctx)
+	if err != nil {
+		log.Fatalf("Append returned error: %v", err)
+		return output.FLB_ERROR
+	}
+
+	log.Printf("Done!")
 
 	return output.FLB_OK
 }
 
 //export FLBPluginExit
 func FLBPluginExit() int {
-	for _, config := range configMap {
-		if config.managedStream != nil {
-			if err := config.managedStream.Close(); err != nil {
-				log.Printf("Couldn't close managed stram: %v", err)
-				return output.FLB_ERROR
-			}
-		}
-
-		if config.client != nil {
-			if err := config.client.Close(); err != nil {
-				log.Printf("Couldn't close managed writer client: %v", err)
-				return output.FLB_ERROR
-			}
+	// for _, config := range configMap {
+	if managedStream != nil {
+		if err := managedStream.Close(); err != nil {
+			log.Printf("Couldn't close managed stream: %v", err)
+			return output.FLB_ERROR
 		}
 	}
+
+	if client != nil {
+		if err := client.Close(); err != nil {
+			log.Printf("Couldn't close managed writer client: %v", err)
+			return output.FLB_ERROR
+		}
+	}
+	// }
 
 	return output.FLB_OK
 }

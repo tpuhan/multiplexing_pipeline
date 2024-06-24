@@ -4,8 +4,7 @@ go 1.23
 
 require (
 	cloud.google.com/go/bigquery v1.61.0
-	// github.com/fluent/fluent-bit-go v0.0.0-20230731091245-a7a013e2473c
-	github.com/fluent/fluent-bit-go v0.0.0-20200420155746-e125cab17963 
+	github.com/fluent/fluent-bit-go v0.0.0-20230731091245-a7a013e2473c
 	google.golang.org/protobuf v1.34.1
 )
 

@@ -31,7 +31,6 @@ var (
 	datasetID string
 	tableID   string
 	ms_ctx    context.Context
-	configMap = make(map[string]StreamConfig)
 )
 
 // This function handles getting data on the schema of the table data is being written to.
@@ -115,7 +114,6 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	// Creating FLB context for each output, enables multiinstancing
 	id := output.FLBPluginConfigKey(plugin, "OutputID")
 	log.Printf("[multiinstance] id = %q", id)
-	output.FLBPluginSetContext(plugin, id)
 
 	//create context
 	ms_ctx = context.Background()
@@ -160,8 +158,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		client:        client,
 	}
 
-	// Stores stream in map
-	configMap[id] = config
+	output.FLBPluginSetContext(plugin, config)
 
 	return output.FLB_OK
 }
@@ -175,15 +172,8 @@ func FLBPluginFlush(data unsafe.Pointer, length C.int, tag *C.char) int {
 //export FLBPluginFlushCtx
 func FLBPluginFlushCtx(ctx, data unsafe.Pointer, length C.int, tag *C.char) int {
 	// Get FLB context
-	id := output.FLBPluginGetContext(ctx).(string)
-	log.Printf("[multiinstance] Flush called for id: %s", id)
-
-	// Locate stream in map
-	config, ok := configMap[id]
-	if !ok {
-		log.Printf("Skipping flush because config is not found for tag: %s.", id)
-		return output.FLB_OK
-	}
+	config := output.FLBPluginGetContext(ctx).(StreamConfig)
+	log.Printf("[multiinstance] Flush called")
 
 	// Create Fluent Bit decoder
 	dec := output.NewDecoder(data, int(length))
@@ -234,15 +224,8 @@ func FLBPluginExit() int {
 //export FLBPluginExitCtx
 func FLBPluginExitCtx(ctx unsafe.Pointer) int {
 	// Get context
-	id := output.FLBPluginGetContext(ctx).(string)
-	log.Printf("[multiinstance] Exit called for id: %s", id)
-
-	// Asynchronously checks streams by locating in map
-	config, ok := configMap[id]
-	if !ok {
-		log.Printf("Skipping exit because config is not found for tag: %s.", id)
-		return output.FLB_OK
-	}
+	config := output.FLBPluginGetContext(ctx).(StreamConfig)
+	// log.Printf("[multiinstance] Exit called for id: %s", id)
 
 	if config.managedStream != nil {
 		if err := config.managedStream.Close(); err != nil {

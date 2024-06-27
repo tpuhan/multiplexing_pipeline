@@ -225,7 +225,7 @@ func FLBPluginExit() int {
 func FLBPluginExitCtx(ctx unsafe.Pointer) int {
 	// Get context
 	config := output.FLBPluginGetContext(ctx).(StreamConfig)
-	// log.Printf("[multiinstance] Exit called for id: %s", id)
+	log.Printf("[multiinstance] Exit called")
 
 	if config.managedStream != nil {
 		if err := config.managedStream.Close(); err != nil {
